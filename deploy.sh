@@ -59,20 +59,292 @@ echo ""
 # Initialize log file
 echo "=== Deployment started at $(date) ===" > "$LOG_FILE"
 
-# Step 1: Check Python availability
-log "Checking Python installation..."
+# Step 1: Install Python 3.10 if not available (Universal VM deployment)
+log "Checking Python 3.10 installation..."
 
-# Try python3 first, then python
-if command -v python3 &> /dev/null; then
-    PYTHON_CMD="python3"
-elif command -v python &> /dev/null; then
-    PYTHON_CMD="python"
+# Detect package manager
+detect_package_manager() {
+    if command -v apt-get &> /dev/null; then
+        echo "apt"
+    elif command -v dnf &> /dev/null; then
+        echo "dnf"
+    elif command -v yum &> /dev/null; then
+        echo "yum"
+    elif command -v zypper &> /dev/null; then
+        echo "zypper"
+    elif command -v pacman &> /dev/null; then
+        echo "pacman"
+    elif command -v apk &> /dev/null; then
+        echo "apk"
+    elif command -v brew &> /dev/null; then
+        echo "brew"
+    else
+        echo "unknown"
+    fi
+}
+
+# Install build dependencies for source compilation
+install_build_deps() {
+    local pkg_mgr=$1
+    log "Installing build dependencies..."
+    
+    case "$pkg_mgr" in
+        apt)
+            sudo apt-get update -y
+            sudo apt-get install -y build-essential curl wget git \
+                libssl-dev libffi-dev zlib1g-dev libbz2-dev \
+                libreadline-dev libsqlite3-dev libncurses5-dev \
+                libncursesw5-dev xz-utils tk-dev liblzma-dev
+            ;;
+        dnf|yum)
+            sudo $pkg_mgr groupinstall -y "Development Tools" 2>/dev/null || true
+            sudo $pkg_mgr install -y gcc curl wget git \
+                openssl-devel bzip2-devel libffi-devel zlib-devel \
+                readline-devel sqlite-devel ncurses-devel xz-devel tk-devel
+            ;;
+        zypper)
+            sudo zypper install -y gcc make curl wget git \
+                libopenssl-devel libffi-devel zlib-devel libbz2-devel \
+                readline-devel sqlite3-devel ncurses-devel xz-devel
+            ;;
+        pacman)
+            sudo pacman -Sy --noconfirm base-devel curl wget git \
+                openssl libffi zlib bzip2 readline sqlite ncurses xz
+            ;;
+        apk)
+            sudo apk add --no-cache gcc musl-dev curl wget git \
+                openssl-dev libffi-dev zlib-dev bzip2-dev \
+                readline-dev sqlite-dev ncurses-dev xz-dev
+            ;;
+    esac
+}
+
+# Install Python 3.10 from source (universal fallback)
+install_python_from_source() {
+    log "Installing Python 3.10 from source (this may take a few minutes)..."
+    
+    local pkg_mgr=$(detect_package_manager)
+    install_build_deps "$pkg_mgr"
+    
+    cd /tmp
+    curl -sLO https://www.python.org/ftp/python/3.10.13/Python-3.10.13.tgz
+    tar -xzf Python-3.10.13.tgz
+    cd Python-3.10.13
+    ./configure --enable-optimizations --prefix=/usr/local --with-ensurepip=install
+    sudo make altinstall -j$(nproc 2>/dev/null || echo 2)
+    cd "$PROJECT_ROOT"
+    rm -rf /tmp/Python-3.10.13*
+    
+    # Create symlink if needed
+    if [ -f /usr/local/bin/python3.10 ] && [ ! -f /usr/bin/python3.10 ]; then
+        sudo ln -sf /usr/local/bin/python3.10 /usr/bin/python3.10 2>/dev/null || true
+    fi
+}
+
+install_python310() {
+    log "Installing Python 3.10..."
+    
+    local pkg_mgr=$(detect_package_manager)
+    local os_id=""
+    local os_version=""
+    
+    # Detect OS
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        os_id="$ID"
+        os_version="$VERSION_ID"
+        log "Detected OS: $PRETTY_NAME"
+    fi
+    
+    case "$pkg_mgr" in
+        apt)
+            # Debian/Ubuntu-based (AWS Ubuntu, Azure Ubuntu, GCP Ubuntu, etc.)
+            sudo apt-get update -y
+            
+            # Try direct install first (Ubuntu 22.04+ has Python 3.10)
+            if sudo apt-get install -y python3.10 python3.10-venv python3.10-dev 2>/dev/null; then
+                log "✓ Installed Python 3.10 via apt"
+                return 0
+            fi
+            
+            # Try deadsnakes PPA (Ubuntu)
+            if [ "$os_id" = "ubuntu" ]; then
+                log "Adding deadsnakes PPA..."
+                sudo apt-get install -y software-properties-common
+                sudo add-apt-repository -y ppa:deadsnakes/ppa
+                sudo apt-get update -y
+                if sudo apt-get install -y python3.10 python3.10-venv python3.10-dev 2>/dev/null; then
+                    log "✓ Installed Python 3.10 via deadsnakes PPA"
+                    return 0
+                fi
+            fi
+            
+            # Fallback to source
+            install_python_from_source
+            ;;
+            
+        dnf)
+            # Fedora, RHEL 8+, Amazon Linux 2023, Rocky, AlmaLinux
+            
+            # Enable CRB/PowerTools repo for RHEL-based
+            sudo dnf config-manager --set-enabled crb 2>/dev/null || \
+            sudo dnf config-manager --set-enabled powertools 2>/dev/null || \
+            sudo dnf config-manager --set-enabled PowerTools 2>/dev/null || true
+            
+            # Try EPEL
+            sudo dnf install -y epel-release 2>/dev/null || true
+            
+            if sudo dnf install -y python3.10 python3.10-pip python3.10-devel 2>/dev/null; then
+                log "✓ Installed Python 3.10 via dnf"
+                return 0
+            fi
+            
+            # Try python3.10 package name variations
+            if sudo dnf install -y python310 python310-pip 2>/dev/null; then
+                log "✓ Installed Python 3.10 via dnf (python310)"
+                return 0
+            fi
+            
+            # Fallback to source
+            install_python_from_source
+            ;;
+            
+        yum)
+            # Amazon Linux 2, CentOS 7, older RHEL
+            
+            # Amazon Linux 2 specific
+            if [ "$os_id" = "amzn" ] && command -v amazon-linux-extras &> /dev/null; then
+                log "Using amazon-linux-extras..."
+                if sudo amazon-linux-extras install -y python3.10 2>/dev/null; then
+                    log "✓ Installed Python 3.10 via amazon-linux-extras"
+                    return 0
+                fi
+            fi
+            
+            # Try EPEL + IUS
+            sudo yum install -y epel-release 2>/dev/null || true
+            sudo yum install -y https://repo.ius.io/ius-release-el7.rpm 2>/dev/null || true
+            
+            if sudo yum install -y python310 python310-pip python310-devel 2>/dev/null; then
+                log "✓ Installed Python 3.10 via yum"
+                return 0
+            fi
+            
+            # Fallback to source
+            install_python_from_source
+            ;;
+            
+        zypper)
+            # SUSE/openSUSE (Azure SLES, etc.)
+            if sudo zypper install -y python310 python310-pip python310-devel 2>/dev/null; then
+                log "✓ Installed Python 3.10 via zypper"
+                return 0
+            fi
+            
+            # Fallback to source
+            install_python_from_source
+            ;;
+            
+        pacman)
+            # Arch Linux
+            if sudo pacman -Sy --noconfirm python 2>/dev/null; then
+                # Arch typically has latest Python, check version
+                if python3 --version 2>&1 | grep -q "3.10"; then
+                    log "✓ Python 3.10 available via pacman"
+                    return 0
+                fi
+            fi
+            
+            # Try AUR or source
+            install_python_from_source
+            ;;
+            
+        apk)
+            # Alpine Linux (lightweight containers/VMs)
+            if sudo apk add --no-cache python3~=3.10 py3-pip 2>/dev/null; then
+                log "✓ Installed Python 3.10 via apk"
+                return 0
+            fi
+            
+            # Fallback to source
+            install_python_from_source
+            ;;
+            
+        brew)
+            # macOS (for local development)
+            if brew install python@3.10 2>/dev/null; then
+                log "✓ Installed Python 3.10 via Homebrew"
+                return 0
+            fi
+            ;;
+            
+        *)
+            warn "Unknown package manager. Installing from source..."
+            install_python_from_source
+            ;;
+    esac
+}
+
+# Find Python 3.10 executable
+find_python310() {
+    local candidates=(
+        "python3.10"
+        "/usr/bin/python3.10"
+        "/usr/local/bin/python3.10"
+        "/opt/python3.10/bin/python3.10"
+        "/usr/local/opt/python@3.10/bin/python3.10"  # Homebrew
+        "$HOME/.pyenv/versions/3.10.*/bin/python"    # pyenv
+    )
+    
+    for cmd in "${candidates[@]}"; do
+        if command -v $cmd &> /dev/null 2>&1; then
+            echo "$cmd"
+            return 0
+        fi
+        # Handle glob patterns
+        for expanded in $cmd; do
+            if [ -x "$expanded" ]; then
+                echo "$expanded"
+                return 0
+            fi
+        done
+    done
+    
+    return 1
+}
+
+# Check if Python 3.10 is available, install if not
+PYTHON_CMD=$(find_python310) || PYTHON_CMD=""
+
+if [ -n "$PYTHON_CMD" ]; then
+    log "✓ Python 3.10 already installed: $PYTHON_CMD"
 else
-    error "Python not found. Please install Python 3.10 or higher."
+    log "Python 3.10 not found - installing..."
+    install_python310
+    
+    # Re-check after installation
+    PYTHON_CMD=$(find_python310) || PYTHON_CMD=""
+    
+    if [ -z "$PYTHON_CMD" ]; then
+        # Final fallback to any available python3
+        if command -v python3 &> /dev/null; then
+            PYTHON_CMD="python3"
+            warn "Python 3.10 installation may have failed. Using $(python3 --version)"
+        else
+            error "Python 3.10 installation failed. Please install manually."
+        fi
+    fi
 fi
 
 PYTHON_VERSION=$($PYTHON_CMD --version 2>&1)
-log "Found Python: $PYTHON_VERSION"
+log "Using Python: $PYTHON_VERSION ($PYTHON_CMD)"
+
+# Verify Python version is 3.10.x
+PYTHON_MAJOR=$($PYTHON_CMD -c "import sys; print(sys.version_info.major)")
+PYTHON_MINOR=$($PYTHON_CMD -c "import sys; print(sys.version_info.minor)")
+if [ "$PYTHON_MAJOR" -ne 3 ] || [ "$PYTHON_MINOR" -ne 10 ]; then
+    warn "Python 3.10 required. Found $PYTHON_VERSION. Some dependencies may have compatibility issues."
+fi
 
 # Step 2: Verify project structure
 log "Verifying project structure..."
@@ -135,7 +407,9 @@ log "Checking environment configuration..."
 # Load .env if exists
 if [ -f ".env" ]; then
     log "Loading environment variables from .env"
-    export $(grep -v '^#' .env | xargs)
+    set -a
+    source .env
+    set +a
 fi
 
 # Check for LITELLM_API_KEY
@@ -226,9 +500,9 @@ log "Starting server on port $PORT..."
 
 # Create a startup script for proper background execution
 # Uses python3 with fallback to python for cross-platform compatibility
-cat > "$PROJECT_ROOT/.start_server.sh" << 'STARTUP_EOF'
+cat > "$PROJECT_ROOT/.start_server.sh" << STARTUP_EOF
 #!/bin/bash
-cd "$(dirname "$0")"
+cd "$PROJECT_ROOT"
 source .venv/bin/activate 2>/dev/null || source .venv/Scripts/activate 2>/dev/null
 
 # Use python3 if available, otherwise python
