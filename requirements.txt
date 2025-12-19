@@ -8,6 +8,9 @@ pydantic==2.5.3
 # LLM Client
 openai==1.10.0
 
+# HTTP Client (pinned for openai compatibility)
+httpx>=0.25.0,<0.28.0
+
 # Google APIs
 google-analytics-data==0.18.5
 google-auth==2.27.0

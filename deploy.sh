@@ -407,6 +407,17 @@ log "Checking environment configuration..."
 # Load .env if exists
 if [ -f ".env" ]; then
     log "Loading environment variables from .env"
+    
+    # Convert Windows line endings (CRLF) to Unix (LF) if needed
+    if grep -q $'\r' .env 2>/dev/null; then
+        log "Converting .env line endings from CRLF to LF..."
+        if command -v sed &> /dev/null; then
+            sed -i 's/\r$//' .env 2>/dev/null || sed -i '' 's/\r$//' .env 2>/dev/null || true
+        elif command -v tr &> /dev/null; then
+            tr -d '\r' < .env > .env.tmp && mv .env.tmp .env
+        fi
+    fi
+    
     set -a
     source .env
     set +a
@@ -499,17 +510,21 @@ log "✓ All Python modules validated"
 log "Starting server on port $PORT..."
 
 # Create a startup script for proper background execution
-# Uses python3 with fallback to python for cross-platform compatibility
+# Uses the specific Python from the venv for reliability
 cat > "$PROJECT_ROOT/.start_server.sh" << STARTUP_EOF
 #!/bin/bash
 cd "$PROJECT_ROOT"
-source .venv/bin/activate 2>/dev/null || source .venv/Scripts/activate 2>/dev/null
 
-# Use python3 if available, otherwise python
-if command -v python3 &> /dev/null; then
-    exec python3 main.py
+# Activate venv and use its python directly
+if [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
+    exec .venv/bin/python main.py
+elif [ -f ".venv/Scripts/activate" ]; then
+    source .venv/Scripts/activate
+    exec .venv/Scripts/python.exe main.py
 else
-    exec python main.py
+    # Fallback
+    exec $PYTHON_CMD main.py
 fi
 STARTUP_EOF
 
@@ -518,6 +533,20 @@ chmod +x "$PROJECT_ROOT/.start_server.sh"
 # Start server in background with nohup
 nohup "$PROJECT_ROOT/.start_server.sh" > "$PROJECT_ROOT/server.log" 2>&1 &
 SERVER_PID=$!
+
+# Give the process a moment to start or fail immediately
+sleep 2
+
+# Check if process is still running
+if ! kill -0 $SERVER_PID 2>/dev/null; then
+    log "Server process died immediately. Checking logs..."
+    if [ -f "$PROJECT_ROOT/server.log" ]; then
+        echo "--- Server Log Start ---"
+        cat "$PROJECT_ROOT/server.log"
+        echo "--- Server Log End ---"
+    fi
+    error "Server failed to start. See logs above."
+fi
 
 log "Server starting with PID: $SERVER_PID"
 
