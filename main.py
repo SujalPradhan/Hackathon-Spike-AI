@@ -14,7 +14,7 @@ OpenAI API Configuration:
 """
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel, validator, Field
 from typing import Optional, Any, Dict
 import uvicorn
@@ -157,19 +157,52 @@ async def startup_event():
         raise
 
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 async def root():
-    """Root endpoint - API information"""
-    return {
-        "service": "Multi-Agent Analytics API",
-        "version": "1.0.0",
-        "status": "running",
-        "endpoints": {
-            "query": "POST /query",
-            "health": "GET /health"
-        },
-        "docs": "/docs"
-    }
+    """Root endpoint - returns HTML welcome page"""
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Multi-Agent Analytics API</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 40px; background-color: #f5f5f5; }
+            .container { background: white; padding: 30px; border-radius: 8px; max-width: 600px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            h1 { color: #333; }
+            p { color: #666; line-height: 1.6; }
+            .status { background-color: #d4edda; padding: 10px; border-radius: 4px; margin: 20px 0; }
+            .status-text { color: #155724; font-weight: bold; }
+            .endpoints { background-color: #e7f3ff; padding: 15px; border-radius: 4px; margin: 20px 0; }
+            .endpoints a { color: #0066cc; text-decoration: none; display: block; margin: 8px 0; }
+            .endpoints a:hover { text-decoration: underline; }
+            .info { color: #666; font-size: 14px; margin-top: 20px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>📊 Multi-Agent Analytics API</h1>
+            <p>AI-powered analytics system with multi-agent support</p>
+            
+            <div class="status">
+                <span class="status-text">✓ Service Running</span>
+            </div>
+            
+            <h2>Available Endpoints</h2>
+            <div class="endpoints">
+                <a href="/docs"><strong>📚 Swagger UI (Interactive Documentation)</strong></a>
+                <a href="/redoc"><strong>📖 ReDoc (Alternative Documentation)</strong></a>
+                <a href="/health"><strong>🏥 Health Check</strong></a>
+            </div>
+            
+            <div class="info">
+                <strong>Version:</strong> 1.0.0<br>
+                <strong>Status:</strong> Running<br>
+                <strong>Endpoints:</strong> POST /query, GET /health
+            </div>
+        </div>
+    </body>
+    </html>
+    """
 
 
 @app.get("/health")
