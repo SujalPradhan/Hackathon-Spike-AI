@@ -1,26 +1,25 @@
 """
-LLM Client - LiteLLM Proxy Interface
+LLM Client - OpenAI API Interface via AI Pipe
 
-Handles all interactions with the LiteLLM proxy server.
+Handles all interactions with the OpenAI API through AI Pipe proxy.
 
-LiteLLM Proxy Details:
-- Base URL: http://3.110.18.218
-- API Key Format: sk-... (provided via email)
+AI Pipe Details:
+- Base URL: https://aipipe.org/openai/v1
+- API Key: AI Pipe Token (from aipipe.org/login)
 - Compatible with OpenAI SDK
 
-Available Models (from api.md):
-- gemini-2.5-flash: Fast, cheap, for most queries
-- gemini-2.5-pro: Complex reasoning, use sparingly  
-- gemini-3-pro-preview: Latest preview model
+Available Models:
+- gpt-4o-mini: Fast, cost-effective, for most queries (default)
+- gpt-4o: More capable, for complex reasoning
 
 Features:
 - Exponential backoff for rate limiting (429 errors)
 - Token usage tracking
 - JSON mode support
-- Model selection (flash vs pro)
+- Model selection
 - Error handling and retries
 
-Budget: $100 LiteLLM credits (must be monitored)
+Usage tracking available at aipipe.org/usage
 """
 
 import time
@@ -32,29 +31,29 @@ from openai import OpenAI, APIError, RateLimitError, APITimeoutError
 logger = logging.getLogger(__name__)
 
 
-# LiteLLM Proxy Configuration
-LITELLM_BASE_URL = "http://3.110.18.218"
+# AI Pipe OpenAI Proxy Configuration
+OPENAI_BASE_URL = "https://aipipe.org/openai/v1"
 
 
 class LLMClient:
     """
-    Client for interacting with LiteLLM proxy.
+    Client for interacting with OpenAI API via AI Pipe proxy.
     
-    Uses OpenAI-compatible API pointing to LiteLLM proxy.
-    The proxy routes requests to Google Gemini models.
+    Uses OpenAI-compatible API pointing to AI Pipe proxy.
+    The proxy routes requests to OpenAI models.
     
-    Available models (per api.md):
-    - gemini-2.5-flash: Fast, cheap, for most queries
-    - gemini-2.5-pro: Complex reasoning, use sparingly
-    - gemini-3-pro-preview: Latest preview model
+    Available models:
+    - gpt-4o-mini: Fast, cost-effective - use for most queries
+    - gpt-4o: More capable - use for complex reasoning
     """
     
     # Model configurations - mapped to friendly names
-    # These are the actual model names to send to LiteLLM
     MODELS = {
-        'flash': 'gemini-2.5-flash',      # Fast, cheap - use for most queries
-        'pro': 'gemini-2.5-pro',          # Complex reasoning - use sparingly
-        'preview': 'gemini-3-pro-preview' # Latest preview model
+        'mini': 'gpt-4o-mini',    # Fast, cost-effective - use for most queries
+        'standard': 'gpt-4o',      # More capable - use for complex reasoning
+        'flash': 'gpt-4o-mini',    # Alias for backward compatibility
+        'pro': 'gpt-4o',           # Alias for backward compatibility
+        'preview': 'gpt-4o-mini'   # Alias for backward compatibility
     }
     
     # Retry configuration for handling 429 rate limits
@@ -63,17 +62,17 @@ class LLMClient:
     MAX_DELAY = 16  # seconds
     TIMEOUT = 60.0  # seconds
     
-    def __init__(self, api_key: str, base_url: str = LITELLM_BASE_URL):
+    def __init__(self, api_key: str, base_url: str = OPENAI_BASE_URL):
         """
         Initialize LLM client.
         
         Args:
-            api_key: LiteLLM API key (format: sk-...)
-            base_url: LiteLLM proxy URL (default: http://3.110.18.218)
+            api_key: AI Pipe Token (from aipipe.org/login)
+            base_url: AI Pipe OpenAI proxy URL (default: https://aipipe.org/openai/v1)
         
         Note:
-            Uses OpenAI SDK pointed at LiteLLM proxy which routes
-            to Google Gemini models. Do NOT use googleapis.com directly.
+            Uses OpenAI SDK pointed at AI Pipe proxy which routes
+            to OpenAI models.
         """
         self.api_key = api_key
         self.base_url = base_url
@@ -99,7 +98,7 @@ class LLMClient:
     def chat(
         self,
         messages: List[Dict[str, str]],
-        model: str = 'preview',
+        model: str = 'mini',
         temperature: float = 0.3,
         max_tokens: Optional[int] = None,
         json_mode: bool = False
@@ -109,7 +108,7 @@ class LLMClient:
         
         Args:
             messages: List of message dicts with 'role' and 'content'
-            model: 'flash' or 'pro' (maps to actual model names)
+            model: 'mini' or 'standard' (maps to gpt-4o-mini or gpt-4o)
             temperature: 0.0-1.0, lower = more deterministic
             max_tokens: Maximum tokens in response
             json_mode: Force JSON response format
@@ -122,8 +121,8 @@ class LLMClient:
             ValueError: If JSON parsing fails in json_mode
             APIError: If API request fails after retries
         """
-        # Get actual model name
-        model_name = self.MODELS.get(model, self.MODELS['flash'])
+        # Get actual model name (default to gpt-4o-mini if not found)
+        model_name = self.MODELS.get(model, self.MODELS['mini'])
         
         # Add JSON instruction if needed
         if json_mode:
@@ -301,25 +300,24 @@ class LLMClient:
         """
         Estimate cost based on token usage.
         
-        Note: These are rough estimates. Actual pricing depends on model.
-        Gemini Flash: ~$0.075 per 1M input tokens, ~$0.30 per 1M output tokens
-        Gemini Pro: ~$1.25 per 1M input tokens, ~$5.00 per 1M output tokens
+        Note: These are rough estimates based on OpenAI pricing.
+        GPT-4o-mini: ~$0.15 per 1M input tokens, ~$0.60 per 1M output tokens
+        GPT-4o: ~$2.50 per 1M input tokens, ~$10.00 per 1M output tokens
         
         Returns:
             Dict with cost estimates
         """
         usage = self.get_usage()
         
-        # Rough estimates (assuming mostly flash)
-        input_cost = (usage['input_tokens'] / 1_000_000) * 0.075
-        output_cost = (usage['output_tokens'] / 1_000_000) * 0.30
+        # Rough estimates (assuming mostly gpt-4o-mini)
+        input_cost = (usage['input_tokens'] / 1_000_000) * 0.15
+        output_cost = (usage['output_tokens'] / 1_000_000) * 0.60
         total_cost = input_cost + output_cost
         
         return {
             "input_cost": input_cost,
             "output_cost": output_cost,
-            "total_cost": total_cost,
-            "budget_remaining": 100.0 - total_cost
+            "total_cost": total_cost
         }
 
 

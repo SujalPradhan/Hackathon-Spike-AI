@@ -4,13 +4,13 @@ API Gateway - FastAPI Server
 This is the main entry point for the Multi-Agent Analytics System.
 Handles HTTP requests, validation, and response formatting.
 
-Port: 8080 (CRITICAL - must not change)
+Port: 7860
 Endpoint: POST /query
 
-LiteLLM Configuration:
-- Base URL: http://3.110.18.218
-- Uses OpenAI-compatible SDK
-- API Key from LITELLM_API_KEY env variable
+OpenAI API Configuration:
+- Model: gpt-4o-mini
+- Uses OpenAI SDK
+- API Key from OPENAI_API_KEY env variable
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -33,19 +33,25 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 from orchestrator import Orchestrator
 
 # Configure logging
+log_handlers = [logging.StreamHandler()]
+
+# Only add file handler in local dev (not on HF Spaces)
+if os.getenv("SPACE_ID") is None:
+    try:
+        log_handlers.append(logging.FileHandler('api.log'))
+    except (PermissionError, OSError):
+        pass  # Skip file logging if not writable
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('api.log')
-    ]
+    handlers=log_handlers
 )
 logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Spike AI Multi-Agent Analytics API",
+    title="Multi-Agent Analytics API",
     version="1.0.0",
     description="Natural language interface for GA4 and SEO data analysis"
 )
@@ -113,19 +119,19 @@ async def startup_event():
     global orchestrator
     
     logger.info("=" * 70)
-    logger.info("Starting Spike AI Multi-Agent Analytics API")
+    logger.info("Starting Multi-Agent Analytics API")
     logger.info("=" * 70)
     
     try:
         # Load environment variables
-        litellm_api_key = os.getenv('LITELLM_API_KEY')
+        openai_api_key = os.getenv('OPENAI_API_KEY')
         sheet_id = os.getenv('SHEET_ID')
         property_id = os.getenv('GA4_PROPERTY_ID')
         credentials_path = os.getenv('GOOGLE_CREDENTIALS_PATH', 'credentials.json')
         
         # Validate critical environment variables
-        if not litellm_api_key:
-            raise ValueError("LITELLM_API_KEY not set in environment")
+        if not openai_api_key:
+            raise ValueError("OPENAI_API_KEY not set in environment")
         
         if not os.path.exists(credentials_path):
             raise ValueError(f"Credentials file not found: {credentials_path}")
@@ -136,7 +142,7 @@ async def startup_event():
         
         # Initialize orchestrator
         orchestrator = Orchestrator(
-            litellm_api_key=litellm_api_key,
+            litellm_api_key=openai_api_key,
             credentials_path=credentials_path,
             default_sheet_id=sheet_id,
             default_property_id=property_id
@@ -155,7 +161,7 @@ async def startup_event():
 async def root():
     """Root endpoint - API information"""
     return {
-        "service": "Spike AI Multi-Agent Analytics API",
+        "service": "Multi-Agent Analytics API",
         "version": "1.0.0",
         "status": "running",
         "endpoints": {
@@ -292,14 +298,19 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 def run_server():
-    """Run the FastAPI server on port 8080"""
-    logger.info("Starting server on port 8080...")
+    """Run the FastAPI server"""
+    # Get configuration from environment
+    # Use 0.0.0.0 for container/cloud deployments
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", 7860))
     
-    # CRITICAL: Must bind to port 8080 and 0.0.0.0 (per PRD requirements)
+    logger.info(f"Starting server on http://{host}:{port}")
+    logger.info(f"Documentation available at http://{host}:{port}/docs")
+    
     uvicorn.run(
         app,
-        host="0.0.0.0",
-        port=8080,
+        host=host,
+        port=port,
         log_level="info",
         access_log=True
     )
