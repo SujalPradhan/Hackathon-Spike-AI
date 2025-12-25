@@ -15,6 +15,7 @@ OpenAI API Configuration (via AI Pipe):
 """
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, validator, Field
 from typing import Optional, Any, Dict
@@ -55,6 +56,15 @@ app = FastAPI(
     title="Spike AI Multi-Agent Analytics API",
     version="1.0.0",
     description="Natural language interface for GA4 and SEO data analysis"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
 )
 
 # Global orchestrator instance
