@@ -1,4 +1,4 @@
-# Spike AI Multi-Agent Analytics System
+# Multi-Agent Analytics System
 
 Multi-agent AI system for querying Google Analytics 4 and SEO data using natural language.
 
@@ -9,7 +9,7 @@ Multi-agent AI system for querying Google Analytics 4 and SEO data using natural
 - Python 3.10+
 - Git
 - Google Cloud service account credentials
-- LiteLLM API key
+- AI Proxy API key
 
 ### Installation
 
@@ -39,8 +39,8 @@ pip install -r requirements.txt
 
 1. **Create `.env` file** (copy from template)
 ```env
-# LiteLLM API Configuration
-LITELLM_API_KEY=sk-your-api-key-here
+# AI Proxy Configuration
+AI_PROXY_API_KEY=your-api-key-here
 
 # Google Cloud Configuration
 GOOGLE_CREDENTIALS_PATH=credentials.json
@@ -68,10 +68,9 @@ To create service account credentials:
   - Google Sheets API
 - Download JSON key as `credentials.json`
 
-3. **Get LiteLLM API Key**
+3. **Get AI Proxy API Key**
 
-Your API key should be in format: `sk-...`
-- Base URL: `http://3.110.18.218`
+Provide your AI Proxy API key from your authentication service.
 - Uses OpenAI-compatible SDK
 
 
@@ -120,7 +119,7 @@ Hackathon-Spike/
 ├── src/
 │   ├── ga4_client.py           # GA4 Data API client
 │   ├── analytics_agent.py      # Analytics Agent (Tier 1)
-│   ├── llm_client.py           # LiteLLM client with retry logic
+	│   ├── llm_client.py           # AI Proxy client with retry logic
 │   ├── orchestrator.py         # Multi-agent orchestrator
 │   └── response_formatter.py   # Response format handler
 ├── techinical-documents/
@@ -135,7 +134,7 @@ Hackathon-Spike/
 - GA4 Client - Service account auth, dynamic propertyId, retry logic
 - Analytics Agent - NL parsing, metric/dimension validation, query execution
 - API Gateway - POST /query endpoint on port 8080
-- LLM Client - LiteLLM proxy with exponential backoff
+- LLM Client - AI Proxy with exponential backoff
 - Orchestrator - Intent detection, agent routing
 - Response Formatter - NL/JSON/Hybrid output modes
 
@@ -205,7 +204,7 @@ lsof -i :8080
 ### API Key not working
 ```bash
 # Test directly
-python test_litellm.py
+python test_api.py
 ```
 
 ### Import errors
@@ -238,7 +237,7 @@ flake8 .
 ### Environment Variables
 
 Required:
-- `LITELLM_API_KEY` - Your LiteLLM API key
+- `AI_PROXY_API_KEY` - Your AI Proxy API key
 
 Optional:
 - `GA4_PROPERTY_ID` - Default GA4 property
