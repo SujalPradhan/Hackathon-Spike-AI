@@ -15,6 +15,7 @@ OpenAI API Configuration (via AI Pipe):
 """
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, validator, Field
@@ -58,21 +59,13 @@ app = FastAPI(
     description="Natural language interface for GA4 and SEO data analysis"
 )
 
-# Add CORS middleware to allow frontend requests
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
-        "http://172.28.192.1:3000",  # WSL network interface
-        "http://172.28.192.1:3001",
-        "*"  # Allow all origins - adjust for production
-    ],
+    allow_origins=["*"],  # Allow all origins
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
 )
 
 # Global orchestrator instance
